@@ -1,0 +1,20 @@
+services:
+  webcam-bot:
+    build: .
+    container_name: webcam-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    devices:
+      - "/dev/video0:/dev/video0"
+    # Si tras desplegar ves "Permission denied" al abrir la cámara,
+    # descomenta la línea siguiente con el GID del grupo "video" del
+    # servidor (consulta cómo obtenerlo en el README) en vez de usar
+    # privileged: true.
+    # group_add:
+    #   - "44"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
