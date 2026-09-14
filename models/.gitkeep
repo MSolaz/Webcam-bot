@@ -1,0 +1,9 @@
+Coloca aquí los dos archivos del modelo de detección de perro:
+
+  - MobileNetSSD_deploy.prototxt
+  - MobileNetSSD_deploy.caffemodel
+
+Instrucciones de descarga en README.md, sección "Detección automática de perro".
+Mientras no estén ambos archivos aquí, el bot funciona con normalidad
+(captura manual con "Hacer foto") pero la vigilancia automática queda
+desactivada.
