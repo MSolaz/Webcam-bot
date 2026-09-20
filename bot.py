@@ -39,6 +39,7 @@ from telegram.ext import (
 
 import detection
 import usb_reset
+
 # --------------------------------------------------------------------------
 # Configuración (vía variables de entorno, ver .env.example)
 # --------------------------------------------------------------------------
@@ -95,7 +96,9 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger("webcam-bot")
 
 MAIN_KEYBOARD = ReplyKeyboardMarkup(
-    [[BUTTON_PHOTO], [BUTTON_WATCHDOG], [BUTTON_RESET]], resize_keyboard=True, is_persistent=True
+    [[BUTTON_PHOTO], [BUTTON_WATCHDOG], [BUTTON_RESET]],
+    resize_keyboard=True,
+    is_persistent=True,
 )
 
 # Serializa el acceso al dispositivo de la cámara: solo un lector a la vez
@@ -250,7 +253,7 @@ async def watchdog_job(context: ContextTypes.DEFAULT_TYPE):
         logger.info(
             "Perro detectado (confianza %.0f%%) pero en cooldown, no se avisa",
             confidence * 100,
-        )
+            )
         return
     context.application.bot_data["last_dog_alert_ts"] = now
 
@@ -304,7 +307,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "👋 Bot de webcam listo.\n\n"
         f"Pulsa «{BUTTON_PHOTO}» o usa /foto para capturar una imagen.\n"
         f"Pulsa «{BUTTON_WATCHDOG}» o usa /vigilancia para la vigilancia "
-        "automática de perro.",
+        "automática de perro.\n"
         f"Pulsa «{BUTTON_RESET}» o usa /reset_cam si la cámara se queda "
         "colgada y no responde.",
         reply_markup=MAIN_KEYBOARD,
@@ -372,6 +375,7 @@ async def on_watchdog_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     )
 
 
+@restricted
 async def cmd_reset_cam(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     await update.message.reply_text("🔁 Reiniciando la cámara (reset USB)...")
@@ -475,6 +479,15 @@ def build_app() -> Application:
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, unknown_text))
 
     _net = load_detector()
+    if _net is not None and app.job_queue is None:
+        logger.error(
+            "Hay modelo de detección pero no hay JobQueue disponible: "
+            "falta el extra 'job-queue' de python-telegram-bot "
+            "(python-telegram-bot[job-queue] en requirements.txt). "
+            "La vigilancia automática queda desactivada."
+        )
+        _net = None
+
     if _net is not None:
         job = app.job_queue.run_repeating(
             watchdog_job,
@@ -498,7 +511,7 @@ def main():
         CAMERA_DEVICE,
         sorted(ALLOWED_USER_IDS) or "TODOS (sin restricción)",
         "disponible" if _net is not None else "no disponible (faltan pesos del modelo)",
-    )
+        )
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
