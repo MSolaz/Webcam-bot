@@ -305,7 +305,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Pulsa «{BUTTON_PHOTO}» o usa /foto para capturar una imagen.\n"
         f"Pulsa «{BUTTON_WATCHDOG}» o usa /vigilancia para la vigilancia "
         "automática de perro.",
-        f"Pulsa «{BUTTON_RESET}» o usa /reset_cam si la cámara se queda ",
+        f"Pulsa «{BUTTON_RESET}» o usa /reset_cam si la cámara se queda "
         "colgada y no responde.",
         reply_markup=MAIN_KEYBOARD,
     )
