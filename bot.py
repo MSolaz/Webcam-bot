@@ -38,7 +38,7 @@ from telegram.ext import (
 )
 
 import detection
-
+import usb_reset
 # --------------------------------------------------------------------------
 # Configuración (vía variables de entorno, ver .env.example)
 # --------------------------------------------------------------------------
@@ -76,8 +76,15 @@ DOG_MIN_CONFIDENCE = float(os.environ.get("DOG_MIN_CONFIDENCE", "0.4"))
 # comprobación se repite cada pocos segundos y no necesita máxima calidad.
 DOG_CHECK_WARMUP_FRAMES = int(os.environ.get("DOG_CHECK_WARMUP_FRAMES", "3"))
 
+# --- Reset USB de la cámara ---
+# Segundos de margen tras el reset antes de intentar verificarlo con una
+# captura (el driver/kernel tarda un poco en volver a enumerar el
+# dispositivo).
+RESET_SETTLE_SECONDS = float(os.environ.get("RESET_SETTLE_SECONDS", "3"))
+
 BUTTON_PHOTO = "📸 Hacer foto"
 BUTTON_WATCHDOG = "🐶 Vigilancia"
+BUTTON_RESET = "🔁 Reiniciar cámara"
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -88,7 +95,7 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger("webcam-bot")
 
 MAIN_KEYBOARD = ReplyKeyboardMarkup(
-    [[BUTTON_PHOTO], [BUTTON_WATCHDOG]], resize_keyboard=True, is_persistent=True
+    [[BUTTON_PHOTO], [BUTTON_WATCHDOG], [BUTTON_RESET]], resize_keyboard=True, is_persistent=True
 )
 
 # Serializa el acceso al dispositivo de la cámara: solo un lector a la vez
@@ -298,6 +305,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Pulsa «{BUTTON_PHOTO}» o usa /foto para capturar una imagen.\n"
         f"Pulsa «{BUTTON_WATCHDOG}» o usa /vigilancia para la vigilancia "
         "automática de perro.",
+        f"Pulsa «{BUTTON_RESET}» o usa /reset_cam si la cámara se queda ",
+        "colgada y no responde.",
         reply_markup=MAIN_KEYBOARD,
     )
 
@@ -363,6 +372,55 @@ async def on_watchdog_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     )
 
 
+async def cmd_reset_cam(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
+    await update.message.reply_text("🔁 Reiniciando la cámara (reset USB)...")
+    await context.bot.send_chat_action(chat_id=chat.id, action=ChatAction.TYPING)
+
+    async with camera_lock:
+        try:
+            node = await asyncio.to_thread(usb_reset.reset_usb_camera, CAMERA_DEVICE)
+        except usb_reset.USBResetError as exc:
+            logger.error("Reset USB fallido: %s", exc)
+            await update.message.reply_text(f"⚠️ No se pudo resetear la cámara: {exc}")
+            return
+        except Exception:
+            logger.exception("Error inesperado en el reset USB")
+            await update.message.reply_text(
+                "⚠️ Error inesperado al resetear la cámara. Revisa los logs "
+                "del contenedor."
+            )
+            return
+
+    logger.info("Cámara reseteada vía USB (%s)", node)
+    await asyncio.sleep(RESET_SETTLE_SECONDS)
+
+    # Verificación automática: intenta capturar una foto para confirmar
+    # que la cámara ha vuelto a responder.
+    try:
+        jpeg_bytes = await capture_jpeg()
+    except CameraError as exc:
+        await update.message.reply_text(
+            f"🔁 Reset USB realizado ({node}), pero la cámara aún no "
+            f"responde ({exc}). Puede necesitar unos segundos más — "
+            f"prueba «{BUTTON_PHOTO}» en breve."
+        )
+        return
+    except Exception:
+        logger.exception("Error inesperado verificando la cámara tras el reset")
+        await update.message.reply_text(
+            f"🔁 Reset USB realizado ({node}), pero no se pudo verificar "
+            f"automáticamente. Prueba «{BUTTON_PHOTO}»."
+        )
+        return
+
+    await update.message.reply_photo(
+        photo=jpeg_bytes,
+        caption="✅ Cámara reiniciada y respondiendo correctamente.",
+        reply_markup=MAIN_KEYBOARD,
+    )
+
+
 @restricted
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -370,6 +428,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/foto — capturar y enviar una imagen de la webcam\n"
         "/vigilancia — ver/activar/desactivar el aviso automático al "
         "detectar un perro\n"
+        "/reset_cam — reset USB de la cámara si se queda colgada\n"
         "/start — mostrar el teclado de botones\n"
         "/help — esta ayuda",
         reply_markup=MAIN_KEYBOARD,
@@ -383,6 +442,8 @@ async def unknown_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await cmd_foto(update, context)
     elif update.message.text == BUTTON_WATCHDOG:
         await cmd_vigilancia(update, context)
+    elif update.message.text == BUTTON_RESET:
+        await cmd_reset_cam(update, context)
 
 
 # --------------------------------------------------------------------------
@@ -409,6 +470,7 @@ def build_app() -> Application:
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("foto", cmd_foto))
     app.add_handler(CommandHandler("vigilancia", cmd_vigilancia))
+    app.add_handler(CommandHandler("reset_cam", cmd_reset_cam))
     app.add_handler(CallbackQueryHandler(on_watchdog_callback, pattern=r"^wd:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, unknown_text))
 
