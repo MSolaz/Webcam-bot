@@ -13,7 +13,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY bot.py detection.py ./
+COPY bot.py detection.py usb_reset.py ./
 COPY models/ ./models/
 
 CMD ["python", "bot.py"]
