@@ -137,7 +137,65 @@ noche o a contraluz la detección empeora mucho.
 Nota: el modelo reconoce perros como «clase», no a *tu* perro en concreto:
 avisará con cualquier perro que aparezca en la imagen.
 
-## 6. Solución de problemas
+## 6. Reiniciar la cámara (reset USB)
+
+A veces la webcam se queda «colgada»: el LED se queda encendido fijo y el bot
+responde `La cámara se abrió pero no devolvió fotogramas` o `No se pudo abrir
+el dispositivo de cámara`. Normalmente se arregla desenchufando y volviendo a
+enchufar el cable USB; este comando hace lo mismo por software, sin tocar el
+servidor.
+
+### Uso
+
+Pulsa **«🔁 Reiniciar cámara»** (o envía `/reset_cam`). El bot:
+
+1. Hace un reset del puerto USB de la cámara (como si la desenchufaras y la
+   volvieras a enchufar).
+2. Espera unos segundos a que el sistema la vuelva a reconocer.
+3. Hace una foto de prueba y te la envía con
+   `✅ Cámara reiniciada y respondiendo correctamente.`
+
+Si recibes `Reset USB realizado (...), pero la cámara aún no responde`, espera
+unos segundos y prueba «📸 Hacer foto». Si sigue sin responder, sube
+`RESET_SETTLE_SECONDS` en `.env` (por defecto `5`), que es cuánto espera el
+bot antes de la foto de prueba.
+
+Mientras dura el reset, la vigilancia de perro y las fotos se quedan en
+espera, para que nada intente usar la cámara a medias.
+
+### Requisitos
+
+Solo funciona con el bot corriendo en Linux (en Docker, como se explica
+aquí). El `docker-compose.yml` ya incluye lo necesario:
+
+- `volumes: /dev/bus/usb:/dev/bus/usb`: el contenedor necesita ver los
+  dispositivos USB, no solo `/dev/video0`.
+- `device_cgroup_rules: "c 189:* rmw"`: permiso para acceder a dispositivos
+  USB. Es mucho más restringido que `privileged: true`, pero da acceso a
+  cualquier dispositivo USB del servidor, no solo a la cámara. El bot solo
+  resetea el de la cámara.
+
+Si quitas esas líneas, el resto del bot sigue funcionando, pero `/reset_cam`
+fallará.
+
+### Si el reset falla
+
+**`No se pudo abrir /dev/bus/usb/... para el reset`**
+Al contenedor le falta acceso a los dispositivos USB. Comprueba que las dos
+líneas de arriba siguen en `docker-compose.yml` y recrea el contenedor con
+`docker compose up -d`.
+
+**`No se encontró la ruta sysfs de '/dev/video0'`**
+El sistema ya no ve la cámara: probablemente se ha desconectado o ha
+cambiado de nombre (por ejemplo, a `/dev/video1`). Compruébalo en el
+servidor con `v4l2-ctl --list-devices`.
+
+**El reset funciona pero la cámara sigue sin responder**
+Algunos bloqueos no se arreglan por software. Desenchufa físicamente la
+cámara, vuelve a enchufarla y reinicia el contenedor con
+`docker compose restart`.
+
+## 7. Solución de problemas
 
 **`Permission denied` al abrir /dev/video0 en los logs**
 El usuario dentro del contenedor no pertenece al grupo del dispositivo.
@@ -157,6 +215,9 @@ corriendo, o un stream previo sin cerrar). Comprueba con:
 ```bash
 sudo fuser /dev/video0
 ```
+
+Si ningún proceso la está usando, puede que la cámara se haya quedado
+colgada: prueba «🔁 Reiniciar cámara» (ver sección 6).
 
 **Fotos oscuras, verdosas o con colores raros**
 Sube el valor de `WARMUP_FRAMES` en `.env` (por ejemplo a 20-30): algunas

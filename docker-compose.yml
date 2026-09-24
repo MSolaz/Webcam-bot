@@ -7,7 +7,7 @@ services:
       - .env
     devices:
       - "/dev/video0:/dev/video0"
-    # Necesario para el reset USB (§5 del README): el contenedor necesita
+    # Necesario para el reset USB (§6 del README): el contenedor necesita
     # ver el árbol /dev/bus/usb además del dispositivo de vídeo, y permiso
     # a nivel de cgroup para tocar dispositivos USB (major 189). No es
     # "privileged: true" completo, solo esto.
