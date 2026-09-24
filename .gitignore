@@ -7,9 +7,13 @@ __pycache__/
 # Configuración local (contiene el token del bot)
 .env
 
-# Pesos del modelo (se descargan aparte, ver README)
+# Pesos de los modelos (se descargan o entrenan aparte, ver README)
 models/*
 !models/.gitkeep
+
+# Audio del anti-ladridos (cada uno pone el suyo, ver README)
+sounds/*
+!sounds/.gitkeep
 
 # IDE
 .idea/

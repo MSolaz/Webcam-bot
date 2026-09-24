@@ -26,3 +26,18 @@ def test_model_paths_use_model_dir():
     assert settings.model_prototxt.endswith("MobileNetSSD_deploy.prototxt")
     assert settings.model_prototxt.startswith("/modelos")
     assert settings.model_weights.endswith("MobileNetSSD_deploy.caffemodel")
+
+
+def test_bark_guard_defaults():
+    settings = Settings.from_env({})
+    assert settings.bark_guard_enabled is True
+    assert settings.audio_input_device == "default"
+    assert settings.bark_threshold is None
+    assert settings.bark_sound_file.endswith("ladrido.wav")
+    assert settings.bark_model.endswith("ladridos.tflite")
+    assert settings.bark_model_info.endswith("ladridos_info.json")
+
+
+def test_bark_threshold_override():
+    assert Settings.from_env({"BARK_THRESHOLD": "0.7"}).bark_threshold == 0.7
+    assert Settings.from_env({"BARK_THRESHOLD": " "}).bark_threshold is None

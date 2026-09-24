@@ -22,6 +22,7 @@ from telegram.ext import (
 
 from webcam_bot import usb_reset
 from webcam_bot.auth import is_authorized, restricted
+from webcam_bot.bark_guard import bark_guard_keyboard, bark_guard_status_text
 from webcam_bot.camera import CameraError
 from webcam_bot.watchdog import watchdog_keyboard, watchdog_status_text
 
@@ -31,10 +32,11 @@ logger = logging.getLogger("webcam-bot")
 
 BUTTON_PHOTO = "📸 Hacer foto"
 BUTTON_WATCHDOG = "🐶 Vigilancia"
+BUTTON_BARK = "🔊 Anti-ladridos"
 BUTTON_RESET = "🔁 Reiniciar cámara"
 
 MAIN_KEYBOARD = ReplyKeyboardMarkup(
-    [[BUTTON_PHOTO], [BUTTON_WATCHDOG], [BUTTON_RESET]],
+    [[BUTTON_PHOTO], [BUTTON_WATCHDOG, BUTTON_BARK], [BUTTON_RESET]],
     resize_keyboard=True,
     is_persistent=True,
 )
@@ -47,6 +49,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Pulsa «{BUTTON_PHOTO}» o usa /foto para capturar una imagen.\n"
         f"Pulsa «{BUTTON_WATCHDOG}» o usa /vigilancia para la vigilancia "
         "automática de perro.\n"
+        f"Pulsa «{BUTTON_BARK}» o usa /ladridos para el aviso y el audio "
+        "cuando el perro ladra.\n"
         f"Pulsa «{BUTTON_RESET}» o usa /reset_cam si la cámara se queda "
         "colgada y no responde.",
         reply_markup=MAIN_KEYBOARD,
@@ -120,6 +124,42 @@ async def on_watchdog_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 @restricted
+async def cmd_ladridos(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    guard = context.bot_data.get("bark_guard")
+    if guard is None:
+        await update.message.reply_text(bark_guard_status_text(None))
+        return
+    await update.message.reply_text(
+        bark_guard_status_text(guard), reply_markup=bark_guard_keyboard()
+    )
+
+
+async def on_bark_guard_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Igual que on_watchdog_callback: autorización a mano (sin update.message)
+    query = update.callback_query
+    settings = context.bot_data["settings"]
+
+    if not is_authorized(update.effective_user, settings.allowed_user_ids):
+        await query.answer("⛔ No tienes permiso.", show_alert=True)
+        return
+
+    guard = context.bot_data.get("bark_guard")
+    if guard is None:
+        await query.answer()
+        return
+
+    if query.data == "bk:on":
+        guard.enabled = True
+    elif query.data == "bk:off":
+        guard.enabled = False
+
+    await query.answer()
+    await query.edit_message_text(
+        bark_guard_status_text(guard), reply_markup=bark_guard_keyboard()
+    )
+
+
+@restricted
 async def cmd_reset_cam(update: Update, context: ContextTypes.DEFAULT_TYPE):
     settings = context.bot_data["settings"]
     camera = context.bot_data["camera"]
@@ -178,6 +218,8 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/foto — capturar y enviar una imagen de la webcam\n"
         "/vigilancia — ver/activar/desactivar el aviso automático al "
         "detectar un perro\n"
+        "/ladridos — ver/activar/desactivar el anti-ladridos (micrófono + "
+        "altavoz)\n"
         "/reset_cam — reset USB de la cámara si se queda colgada\n"
         "/start — mostrar el teclado de botones\n"
         "/help — esta ayuda",
@@ -192,6 +234,8 @@ async def unknown_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await cmd_foto(update, context)
     elif update.message.text == BUTTON_WATCHDOG:
         await cmd_vigilancia(update, context)
+    elif update.message.text == BUTTON_BARK:
+        await cmd_ladridos(update, context)
     elif update.message.text == BUTTON_RESET:
         await cmd_reset_cam(update, context)
 
@@ -201,6 +245,8 @@ def register_handlers(app: Application):
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("foto", cmd_foto))
     app.add_handler(CommandHandler("vigilancia", cmd_vigilancia))
+    app.add_handler(CommandHandler("ladridos", cmd_ladridos))
     app.add_handler(CommandHandler("reset_cam", cmd_reset_cam))
     app.add_handler(CallbackQueryHandler(on_watchdog_callback, pattern=r"^wd:"))
+    app.add_handler(CallbackQueryHandler(on_bark_guard_callback, pattern=r"^bk:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, unknown_text))

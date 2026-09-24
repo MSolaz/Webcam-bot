@@ -7,12 +7,17 @@ services:
       - .env
     devices:
       - "/dev/video0:/dev/video0"
+      # Tarjetas de sonido: micrófono y altavoz del anti-ladridos (§7 del README)
+      - "/dev/snd:/dev/snd"
     # Necesario para el reset USB (§6 del README): el contenedor necesita
     # ver el árbol /dev/bus/usb además del dispositivo de vídeo, y permiso
     # a nivel de cgroup para tocar dispositivos USB (major 189). No es
     # "privileged: true" completo, solo esto.
     volumes:
       - /dev/bus/usb:/dev/bus/usb
+      # Audio que reproduce el anti-ladridos: se puede cambiar sin reconstruir
+      # la imagen (basta con reiniciar el contenedor)
+      - ./sounds:/app/sounds:ro
     device_cgroup_rules:
       - "c 189:* rmw"
     # Si tras desplegar ves "Permission denied" al abrir la cámara,
