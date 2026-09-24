@@ -81,7 +81,7 @@ DOG_CHECK_WARMUP_FRAMES = int(os.environ.get("DOG_CHECK_WARMUP_FRAMES", "3"))
 # Segundos de margen tras el reset antes de intentar verificarlo con una
 # captura (el driver/kernel tarda un poco en volver a enumerar el
 # dispositivo).
-RESET_SETTLE_SECONDS = float(os.environ.get("RESET_SETTLE_SECONDS", "3"))
+RESET_SETTLE_SECONDS = float(os.environ.get("RESET_SETTLE_SECONDS", "5"))
 
 BUTTON_PHOTO = "📸 Hacer foto"
 BUTTON_WATCHDOG = "🐶 Vigilancia"
