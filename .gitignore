@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+
+# Configuración local (contiene el token del bot)
+.env
+
+# Pesos del modelo (se descargan aparte, ver README)
+models/*
+!models/.gitkeep
+
+# IDE
+.idea/
+.vscode/

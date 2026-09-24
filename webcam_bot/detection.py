@@ -11,6 +11,8 @@ Los pesos del modelo NO se incluyen en este repositorio por su tamaño
 sección "Detección automática de perro".
 """
 
+__all__ = ["DOG_CLASS_ID", "VOC_CLASSES", "find_dog", "load_net"]
+
 # Orden de clases con el que se entrenó este MobileNet-SSD concreto
 # (Pascal VOC). El índice importa: tiene que coincidir con la salida
 # de la red.
