@@ -14,3 +14,8 @@ models/*
 # IDE
 .idea/
 .vscode/
+
+# Agentes de IA (skills y configuración local)
+.agents/
+.claude/
+skills-lock.json
