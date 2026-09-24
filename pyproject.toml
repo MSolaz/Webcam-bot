@@ -1,0 +1,5 @@
+# No se publica como paquete: se despliega con Docker (ver Dockerfile).
+# Este archivo solo configura las herramientas de desarrollo.
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -15,6 +15,8 @@ docker-compose.yml: volumes + device_cgroup_rules).
 import fcntl
 import os
 
+__all__ = ["USBResetError", "find_usb_device_node", "reset_usb_camera"]
+
 # _IO('U', 20) del kernel de Linux (<linux/usbdevice_fs.h>)
 USBDEVFS_RESET = 21780
 

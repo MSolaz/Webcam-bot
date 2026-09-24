@@ -94,8 +94,21 @@ esa resolución exacta, OpenCV usará la más cercana disponible.
 
 ```
 webcam-bot/
-├── bot.py              # Lógica del bot y captura de imagen
+├── webcam_bot/         # Código del bot (se arranca con `python -m webcam_bot`)
+│   ├── __main__.py     # Punto de entrada
+│   ├── app.py          # Construcción de la aplicación de Telegram
+│   ├── config.py       # Configuración leída de variables de entorno
+│   ├── auth.py         # Control de usuarios autorizados
+│   ├── camera.py       # Captura de imagen
+│   ├── handlers.py     # Comandos y botones de Telegram
+│   ├── watchdog.py     # Vigilancia automática de perro
+│   ├── detection.py    # Detección de perro (MobileNet-SSD)
+│   └── usb_reset.py    # Reset USB de la cámara
+├── tests/              # Tests (`pytest`)
+├── models/             # Pesos del modelo de detección (no versionados)
 ├── requirements.txt
+├── requirements-dev.txt
+├── pyproject.toml      # Configuración de pytest
 ├── Dockerfile
 ├── docker-compose.yml
 ├── .env.example
