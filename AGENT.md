@@ -38,6 +38,8 @@ webcam-bot/
 │   ├── detection.py        # Detección de perro con MobileNet-SSD (OpenCV DNN), sin estado
 │   └── usb_reset.py        # Reset USB real de la cámara vía sysfs + ioctl (solo Linux)
 ├── tests/                  # pytest: config, auth, detection, usb_reset (este último solo en Linux)
+├── notebooks/
+│   └── entrenar_ladridos.ipynb  # Colab: YAMNet + clasificador → models/ladridos.tflite (+ _info.json)
 ├── models/                 # Pesos del modelo (NO versionados, solo .gitkeep)
 │   ├── MobileNetSSD_deploy.prototxt      (a descargar)
 │   └── MobileNetSSD_deploy.caffemodel    (a descargar, ~23 MB)

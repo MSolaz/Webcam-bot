@@ -243,6 +243,7 @@ webcam-bot/
 │   ├── detection.py    # Detección de perro (MobileNet-SSD)
 │   └── usb_reset.py    # Reset USB de la cámara
 ├── tests/              # Tests (`pytest`)
+├── notebooks/          # Entrenamiento del detector de ladridos (Google Colab)
 ├── models/             # Pesos del modelo de detección (no versionados)
 ├── requirements.txt
 ├── requirements-dev.txt
