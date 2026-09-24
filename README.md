@@ -231,37 +231,81 @@ cuente como otro ladrido.
 
 ### Configurar el micrófono y el altavoz
 
-Micrófono y altavoz suelen ser tarjetas de sonido distintas (por ejemplo, el
-jack del servidor y un altavoz USB), así que hay que decirle al bot cuál es
-cada una. En el servidor (si no tienes estos comandos:
+Hay que decirle al bot qué tarjeta de sonido es el micrófono y cuál el
+altavoz. **No lo dejes en `default`**: la tarjeta por defecto suele ser la
+primera que detecta el sistema, que puede ser la propia webcam (solo tiene
+micrófono, no salida de audio) y además puede cambiar al reiniciar.
+
+**1. Mira qué tarjetas hay.** En el servidor (si no tienes estos comandos:
 `sudo apt install alsa-utils`):
 
 ```bash
-arecord -L | grep plughw   # micrófonos
-aplay -L | grep plughw     # altavoces
+arecord -l   # tarjetas con micrófono
+aplay -l     # tarjetas con salida de audio
 ```
 
-Verás nombres como `plughw:CARD=PCH,DEV=0` (el audio integrado, donde va el
-jack) o `plughw:CARD=Device,DEV=0` (un dispositivo USB). Ponlos en `.env`:
+Por ejemplo, `card 1: PCH [HDA Intel PCH], device 0: ... Analog` es el audio
+integrado del servidor, donde van los jacks de micrófono y de altavoz. Un
+dispositivo de sonido USB aparecería como otra tarjeta con su propio nombre.
 
+Ojo: muchos «altavoces USB» solo usan el USB para la **alimentación** y el
+sonido les llega por un cable jack aparte. Si tu altavoz no aparece en
+`aplay -l`, es de estos: conecta su cable jack a la salida de altavoz o
+auriculares del servidor y usa la tarjeta del audio integrado.
+
+**2. Comprueba que el servidor detecta los cables en los jacks:**
+
+```bash
+amixer -c PCH contents | grep -A2 "Jack"
 ```
-AUDIO_INPUT_DEVICE=plughw:CARD=PCH,DEV=0
-AUDIO_OUTPUT_DEVICE=plughw:CARD=Device,DEV=0
+
+`values=on` en `Headphone Jack` (o `Front Headphone Jack`) significa que
+hay algo conectado a la salida de altavoz, y en `Mic Jack` (o
+`Front Mic Jack`), al micrófono.
+
+**3. Sube y activa los volúmenes.** Es muy habitual que las salidas y el
+micrófono empiecen **silenciados**: `aplay` reproduce sin dar error, pero no
+se oye nada. Actívalos con:
+
+```bash
+amixer -c PCH sset Master 80% unmute
+amixer -c PCH sset Headphone 100% unmute
+amixer -c PCH sset Capture 80% cap
 ```
 
-Usa siempre los que empiezan por `plughw:`: así el sistema adapta el audio al
-formato de cada tarjeta.
+Si alguno responde `Unable to find simple control`, ignóralo: tu tarjeta no
+tiene ese control. Para verlo de forma visual, `alsamixer -c PCH`: las
+columnas con `MM` debajo están silenciadas (selecciónalas con las flechas y
+pulsa `M`); `F4` muestra los volúmenes del micrófono. Si hay una opción
+`Auto-Mute Mode`, ponla en `Disabled`.
 
-Antes de arrancar el bot, comprueba en el servidor que ambos funcionan (graba
-5 segundos y los reproduce):
+**4. Prueba el micrófono y el altavoz** (graba 5 segundos y los reproduce):
 
 ```bash
 arecord -D plughw:CARD=PCH,DEV=0 -d 5 -f S16_LE -r 16000 prueba.wav
-aplay -D plughw:CARD=Device,DEV=0 prueba.wav
+aplay -D plughw:CARD=PCH,DEV=0 prueba.wav
+aplay -D plughw:CARD=PCH,DEV=0 sounds/ladrido.wav
 ```
 
-Si no se oye nada o se oye muy bajo, ajusta los volúmenes con `alsamixer`
-(pulsa `F6` para elegir la tarjeta; `F4` para ver el volumen del micrófono).
+**5. Guarda los volúmenes** para que se mantengan al reiniciar el servidor:
+
+```bash
+sudo alsactl store
+```
+
+**6. Pon los dispositivos en `.env`.** El formato es
+`plughw:CARD=<nombre de la tarjeta>,DEV=<número de device>`. Usa siempre
+`plughw:`, que adapta el audio al formato de la tarjeta. Si micrófono y
+altavoz van a los jacks del audio integrado, es la misma tarjeta para los
+dos (uno es entrada y el otro salida):
+
+```
+AUDIO_INPUT_DEVICE=plughw:CARD=PCH,DEV=0
+AUDIO_OUTPUT_DEVICE=plughw:CARD=PCH,DEV=0
+```
+
+Aplica los cambios de `.env` con `docker compose up -d` (con `restart` no
+se vuelve a leer el `.env`).
 
 ### Desplegar
 
@@ -322,8 +366,20 @@ explica arriba. El bot vuelve a intentarlo cada 30 segundos.
 
 **`⚠️ Pero no se pudo reproducir` en el aviso de Telegram**
 El mensaje incluye el motivo. Normalmente es que `sounds/ladrido.wav` no
-existe o que `AUDIO_OUTPUT_DEVICE` no es correcto (compruébalo con
-`aplay -L`).
+existe o que `AUDIO_OUTPUT_DEVICE` no es correcto. Si el motivo es
+`unable to open slave` o `audio open error` con el dispositivo `'default'`,
+es que falta configurar `AUDIO_OUTPUT_DEVICE` (ver
+«Configurar el micrófono y el altavoz»).
+
+**El aviso dice que reproduce el audio pero no se oye nada**
+Prueba en el servidor con `aplay -D <tu dispositivo> sounds/ladrido.wav`.
+Si pone `Playing WAVE ...` pero no suena, el volumen está silenciado o el
+altavoz no está conectado a esa salida: revisa los pasos 2 y 3 de
+«Configurar el micrófono y el altavoz».
+
+**No detecta ningún ladrido**
+Comprueba que el micrófono graba (paso 4) y que su volumen no está
+silenciado (`Capture` en el paso 3).
 
 ## 8. Solución de problemas
 
