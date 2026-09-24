@@ -19,6 +19,11 @@ Funcionalidades:
 3. **Reset USB de la cámara** — botón «🔁 Reiniciar cámara» o `/reset_cam`:
    hace un reset a nivel de puerto USB (ioctl `USBDEVFS_RESET`) cuando la
    webcam se queda colgada, y luego verifica capturando una foto.
+4. **Anti-ladridos** — botón «🔊 Anti-ladridos» o `/ladridos`: escucha un
+   micrófono; al detectar un ladrido (modelo YAMNet + clasificador entrenado en
+   Colab, `.tflite`) busca al perro con la cámara. Si lo ve, reproduce un WAV
+   por el altavoz y avisa con la foto; si no, solo avisa. Se activa/desactiva
+   con botones inline.
 
 Otros comandos: `/start` (muestra el teclado de botones) y `/help`.
 
@@ -36,26 +41,34 @@ webcam-bot/
 │   ├── handlers.py         # cmd_*, callbacks, BUTTON_*, MAIN_KEYBOARD, register_handlers()
 │   ├── watchdog.py         # load_detector(), watchdog_job, textos/teclado de vigilancia
 │   ├── detection.py        # Detección de perro con MobileNet-SSD (OpenCV DNN), sin estado
+│   ├── bark_guard.py       # BarkGuard: micrófono → ladrido → cámara → audio + aviso; textos/teclado
+│   ├── bark_detection.py   # BarkDetector: ladridos.tflite con ai-edge-litert
+│   ├── audio.py            # Microphone (arecord), SlidingWindow, play_sound (aplay)
 │   └── usb_reset.py        # Reset USB real de la cámara vía sysfs + ioctl (solo Linux)
-├── tests/                  # pytest: config, auth, detection, usb_reset (este último solo en Linux)
+├── tests/                  # pytest (usb_reset solo en Linux; bark_detection solo con el modelo en models/)
 ├── notebooks/
 │   └── entrenar_ladridos.ipynb  # Colab: YAMNet + clasificador → models/ladridos.tflite (+ _info.json)
 ├── models/                 # Pesos del modelo (NO versionados, solo .gitkeep)
 │   ├── MobileNetSSD_deploy.prototxt      (a descargar)
-│   └── MobileNetSSD_deploy.caffemodel    (a descargar, ~23 MB)
-├── requirements.txt        # python-telegram-bot[job-queue]==21.6, opencv-python-headless==4.10.0.84
+│   ├── MobileNetSSD_deploy.caffemodel    (a descargar, ~23 MB)
+│   ├── ladridos.tflite                   (generado con el notebook, ~14 MB)
+│   └── ladridos_info.json                (generado con el notebook)
+├── sounds/                 # Audio del anti-ladridos (NO versionado; montado como volumen)
+│   └── ladrido.wav         (lo pone el usuario)
+├── requirements.txt        # python-telegram-bot[job-queue]==21.6, opencv-python-headless==4.10.0.84, ai-edge-litert==2.2.0
 ├── requirements-dev.txt    # requirements.txt + pytest
 ├── pyproject.toml          # Solo configuración de herramientas (pytest); no se publica como paquete
-├── Dockerfile              # python:3.12-slim + libglib2.0-0, libgl1, v4l-utils
-├── docker-compose.yml      # Mapeo de /dev/video0, /dev/bus/usb y regla cgroup para USB
+├── Dockerfile              # python:3.12-slim + libglib2.0-0, libgl1, v4l-utils, alsa-utils
+├── docker-compose.yml      # /dev/video0, /dev/snd, /dev/bus/usb (+ regla cgroup USB), volumen sounds/
 ├── .env.example            # Plantilla de configuración
 ├── .gitignore
 └── README.md               # Guía de instalación y despliegue para el usuario
 ```
 
 Dependencias entre módulos (en una sola dirección, sin ciclos):
-`__main__` → `app` → `handlers` → `watchdog`, `camera`, `auth`, `usb_reset`;
-`watchdog` → `detection`, `camera`, `config`.
+`__main__` → `app` → `handlers` → `watchdog`, `bark_guard`, `camera`, `auth`, `usb_reset`;
+`watchdog` → `detection`, `camera`, `config`;
+`bark_guard` → `audio`, `bark_detection`, `detection`, `camera`, `config`.
 
 ## Cómo funciona
 
@@ -71,6 +84,7 @@ No hay estado global a nivel de módulo. `build_app()` guarda en
 | `net` | Red de detección, o `None` si faltan los pesos o la JobQueue |
 | `watchdog_job` | `Job` de vigilancia (se activa con `job.enabled`), o `None` |
 | `last_dog_alert_ts` | `time.monotonic()` de la última alerta (cooldown) |
+| `bark_guard` | `BarkGuard` del anti-ladridos (se activa con `.enabled`), o `None` si falta el modelo de ladridos o `net` |
 
 Importar cualquier módulo del paquete no lee el entorno ni configura el
 logging: eso solo ocurre en `__main__.main()`.
@@ -112,17 +126,45 @@ devuelve `None` y la vigilancia se desactiva sin romper el bot.
 positiva, respeta el cooldown y envía la alerta a todos los
 `allowed_user_ids`.
 
+### `bark_guard.py`, `bark_detection.py` y `audio.py` (anti-ladridos)
+
+- `audio.Microphone` lanza `arecord` (16 kHz, mono, S16_LE, dispositivo
+  `AUDIO_INPUT_DEVICE`) en un hilo propio y trocea el flujo con
+  `SlidingWindow` en ventanas de 15600 muestras cada 7680 (el mismo troceado
+  que YAMNet en el entrenamiento). Si `arecord` se cierra, reintenta cada
+  30 s. `audio.play_sound()` reproduce un WAV con `aplay` (bloqueante).
+- `BarkDetector` carga `ladridos.tflite` con `ai_edge_litert` (sin
+  TensorFlow) y lee de `ladridos_info.json` el formato de entrada, los nombres
+  de entrada/salida y `umbral_recomendado` (`BARK_THRESHOLD` lo sustituye).
+  El intérprete no es thread-safe: `probability()` usa un lock.
+- `BarkGuard` pasa las ventanas del hilo del micrófono al event loop con
+  `call_soon_threadsafe` a una `asyncio.Queue` acotada (descarta las más
+  antiguas). Si `probability >= threshold` → `handle_bark()`: cooldown
+  (`BARK_ALERT_COOLDOWN_SECONDS`), hasta `BARK_CAMERA_CHECKS` fotos buscando
+  perro (con `camera.lock`, también porque la red `cv2.dnn` no es
+  thread-safe y la comparte con la vigilancia), audio si lo ve y aviso con
+  foto a todos los `allowed_user_ids`. Mientras suena el audio y 1,5 s
+  después se ignora el micrófono (evita que se dispare con su propio audio).
+- `app.py` crea el `BarkGuard` solo si hay modelo de ladridos **y** `net`, y
+  lo arranca/para en `post_init` / `post_shutdown` de la Application.
+
+El modelo se entrena con `notebooks/entrenar_ladridos.ipynb`. Entrada:
+`audio`, 15600 float32 mono a 16 kHz en [-1, 1]; salida:
+`probabilidad_ladrido`.
+
 ### `handlers.py`
 
-`cmd_start`, `cmd_help`, `cmd_foto`, `cmd_vigilancia`, `cmd_reset_cam`,
-`on_watchdog_callback` (patrón `^wd:`, datos `wd:on` / `wd:off`) y
-`unknown_text`, que enruta el texto de los botones del teclado a su comando.
-`register_handlers(app)` los registra todos.
+`cmd_start`, `cmd_help`, `cmd_foto`, `cmd_vigilancia`, `cmd_ladridos`,
+`cmd_reset_cam`, `on_watchdog_callback` (patrón `^wd:`, datos `wd:on` /
+`wd:off`), `on_bark_guard_callback` (patrón `^bk:`, datos `bk:on` / `bk:off`)
+y `unknown_text`, que enruta el texto de los botones del teclado a su
+comando. `register_handlers(app)` los registra todos.
 
 ### `app.py` y `__main__.py`
 
 `build_app(settings)` valida `TELEGRAM_BOT_TOKEN`, crea la `Camera`, rellena
-`bot_data`, registra handlers, carga el detector y programa el job.
+`bot_data`, registra handlers, carga los detectores, programa el job de
+vigilancia y crea el `BarkGuard`.
 `__main__.main()` configura el logging, lee `Settings` y hace `run_polling`.
 
 ### `detection.py`
@@ -159,6 +201,12 @@ Windows).
 | `DOG_MIN_CONFIDENCE` | `0.4` | Umbral de detección |
 | `DOG_CHECK_WARMUP_FRAMES` | `3` | Calentamiento en la vigilancia |
 | `RESET_SETTLE_SECONDS` | `5` | Espera tras el reset USB antes de verificar |
+| `BARK_GUARD_ENABLED` | `true` | Estado inicial del anti-ladridos |
+| `AUDIO_INPUT_DEVICE` / `AUDIO_OUTPUT_DEVICE` | `default` | Dispositivos ALSA (usar `plughw:CARD=...,DEV=0`) |
+| `BARK_SOUND_FILE` | `sounds/ladrido.wav` | WAV que se reproduce |
+| `BARK_THRESHOLD` | vacío = `umbral_recomendado` del JSON | Umbral de ladrido |
+| `BARK_ALERT_COOLDOWN_SECONDS` | `60` | Tiempo mínimo entre actuaciones |
+| `BARK_CAMERA_CHECKS` | `3` | Fotos (1/s) buscando al perro tras un ladrido |
 
 Al añadir una variable nueva: añadir el campo a `Settings` en `config.py`
 (con valor por defecto) y leerlo en `Settings.from_env()`, documentarla en
@@ -177,7 +225,9 @@ docker compose logs -f
 `docker-compose.yml` mapea `/dev/video0`, monta `/dev/bus/usb` y añade la
 regla cgroup `c 189:* rmw` (necesarias para el reset USB) sin usar
 `privileged: true`. Si aparece `Permission denied` con la cámara, descomentar
-`group_add` con el GID del grupo `video`.
+`group_add` con el GID del grupo `video`. Para el anti-ladridos mapea también
+`/dev/snd` y monta `./sounds` en `/app/sounds` (solo lectura), así que el
+audio se cambia sin reconstruir la imagen.
 
 El `Dockerfile` copia el paquete completo (`COPY webcam_bot/`) y `models/`, y
 arranca con `python -m webcam_bot`. Los módulos nuevos dentro del paquete se
@@ -217,8 +267,12 @@ pytest
 
 ## Pendientes / incoherencias conocidas
 
-- El comentario de `docker-compose.yml` remite a «§6 del README» (reset USB)
-  por número: si se reordenan las secciones del README, hay que actualizarlo.
-- Los mensajes del bot citan la sección del README por su título
-  («Detección automática de perro»): si se renombra, hay que actualizar
-  `watchdog.py`.
+- Los comentarios de `docker-compose.yml` remiten a «§6 del README» (reset
+  USB) y «§7 del README» (anti-ladridos) por número: si se reordenan las
+  secciones del README, hay que actualizarlos.
+- Los mensajes del bot citan secciones del README por su título
+  («Detección automática de perro», «Anti-ladridos»): si se renombran, hay que
+  actualizar `watchdog.py` y `bark_guard.py`.
+- El anti-ladridos no se ha probado aún con micrófono y altavoz reales: solo
+  con tests y simulando `arecord`/`aplay`. La imagen de Docker tampoco se ha
+  construido todavía con `alsa-utils` y `ai-edge-litert`.

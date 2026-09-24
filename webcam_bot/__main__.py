@@ -16,12 +16,15 @@ def main():
     app = build_app(settings)
     logger.info(
         "webcam-bot arrancando (device=%s, usuarios permitidos=%s, "
-        "vigilancia=%s)",
+        "vigilancia=%s, anti-ladridos=%s)",
         settings.camera_device,
         sorted(settings.allowed_user_ids) or "TODOS (sin restricción)",
         "disponible"
         if app.bot_data["net"] is not None
         else "no disponible (faltan pesos del modelo)",
+        "disponible"
+        if app.bot_data["bark_guard"] is not None
+        else "no disponible (ver avisos anteriores)",
     )
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 

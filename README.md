@@ -3,7 +3,8 @@
 Bot de Telegram que controla una webcam conectada al servidor. Al pulsar el
 botón **«📸 Hacer foto»** (o enviar `/foto`), activa la cámara, captura una
 imagen y te la envía por Telegram. Opcionalmente, también vigila la cámara
-y te avisa con una foto cuando detecta un perro (ver sección 5).
+y te avisa con una foto cuando detecta un perro (ver sección 5), y puede
+reproducir un audio para que el perro deje de ladrar (ver sección 7).
 
 Pensado para desplegarse en Docker en el mismo servidor donde tienes
 Server-bot, Pi-hole, etc. (`192.168.1.150`).
@@ -195,7 +196,136 @@ Algunos bloqueos no se arreglan por software. Desenchufa físicamente la
 cámara, vuelve a enchufarla y reinicia el contenedor con
 `docker compose restart`.
 
-## 7. Solución de problemas
+## 7. Anti-ladridos
+
+Con un micrófono y un altavoz conectados al servidor, el bot escucha
+continuamente y, cuando oye ladrar:
+
+1. Hace hasta 3 fotos (una por segundo) buscando al perro con el detector de
+   la sección 5.
+2. **Si ve al perro**: reproduce tu audio por el altavoz y te envía la foto
+   con `🔊 Ladrido detectado (...) y perro a la vista`.
+3. **Si no lo ve**: no reproduce nada y te envía la foto con
+   `👂 Oigo un ladrido pero no veo ningún perro en la cámara`.
+
+Después de actuar espera un tiempo mínimo (60 s por defecto) antes de volver
+a hacerlo. Mientras suena el audio no escucha, para que el propio audio no
+cuente como otro ladrido.
+
+### Qué necesitas
+
+- El **detector de perro** de la sección 5 (sin él no puede comprobar con la
+  cámara).
+- El **modelo de ladridos**: `ladridos.tflite` y `ladridos_info.json`. Se
+  generan con el notebook `notebooks/entrenar_ladridos.ipynb` en Google Colab
+  (instrucciones dentro del propio notebook). Cópialos a `models/`.
+- Un **micrófono** y un **altavoz** conectados al servidor.
+- Tu **audio** en formato WAV, guardado como `sounds/ladrido.wav`. Si lo
+  tienes en MP3 u otro formato, conviértelo con:
+
+  ```bash
+  ffmpeg -i mi_audio.mp3 sounds/ladrido.wav
+  ```
+
+  Evita que el audio contenga ladridos: el micrófono podría oírlo.
+
+### Configurar el micrófono y el altavoz
+
+Micrófono y altavoz suelen ser tarjetas de sonido distintas (por ejemplo, el
+jack del servidor y un altavoz USB), así que hay que decirle al bot cuál es
+cada una. En el servidor (si no tienes estos comandos:
+`sudo apt install alsa-utils`):
+
+```bash
+arecord -L | grep plughw   # micrófonos
+aplay -L | grep plughw     # altavoces
+```
+
+Verás nombres como `plughw:CARD=PCH,DEV=0` (el audio integrado, donde va el
+jack) o `plughw:CARD=Device,DEV=0` (un dispositivo USB). Ponlos en `.env`:
+
+```
+AUDIO_INPUT_DEVICE=plughw:CARD=PCH,DEV=0
+AUDIO_OUTPUT_DEVICE=plughw:CARD=Device,DEV=0
+```
+
+Usa siempre los que empiezan por `plughw:`: así el sistema adapta el audio al
+formato de cada tarjeta.
+
+Antes de arrancar el bot, comprueba en el servidor que ambos funcionan (graba
+5 segundos y los reproduce):
+
+```bash
+arecord -D plughw:CARD=PCH,DEV=0 -d 5 -f S16_LE -r 16000 prueba.wav
+aplay -D plughw:CARD=Device,DEV=0 prueba.wav
+```
+
+Si no se oye nada o se oye muy bajo, ajusta los volúmenes con `alsamixer`
+(pulsa `F6` para elegir la tarjeta; `F4` para ver el volumen del micrófono).
+
+### Desplegar
+
+`docker-compose.yml` ya da acceso al contenedor a las tarjetas de sonido
+(`/dev/snd`) y monta la carpeta `sounds/`. Tras copiar los archivos:
+
+```bash
+docker compose up -d --build
+docker compose logs -f
+```
+
+En los logs deberías ver `Modelo de ladridos cargado`, `Micrófono '...'
+abierto` y `anti-ladridos=disponible`.
+
+Para cambiar el audio más adelante no hace falta reconstruir la imagen: sustituye
+`sounds/ladrido.wav` y ejecuta `docker compose restart`.
+
+### Uso
+
+Pulsa **«🔊 Anti-ladridos»** (o envía `/ladridos`) para ver si está activado y
+encenderlo o apagarlo con los botones «🟢 Activar» / «🔴 Desactivar».
+
+### Ajustes
+
+En `.env` (reinicia con `docker compose up -d` tras cambiarlos):
+
+| Variable | Por defecto | Para qué sirve |
+|---|---|---|
+| `BARK_GUARD_ENABLED` | `true` | Si arranca activado. Siempre se puede cambiar desde Telegram |
+| `AUDIO_INPUT_DEVICE` | `default` | Micrófono (ver arriba) |
+| `AUDIO_OUTPUT_DEVICE` | `default` | Altavoz (ver arriba) |
+| `BARK_SOUND_FILE` | `/app/sounds/ladrido.wav` | Audio que se reproduce |
+| `BARK_THRESHOLD` | el de `ladridos_info.json` (0,5) | Probabilidad mínima (0-1) para considerar que es un ladrido |
+| `BARK_ALERT_COOLDOWN_SECONDS` | `60` | Tiempo mínimo entre dos actuaciones |
+| `BARK_CAMERA_CHECKS` | `3` | Fotos (una por segundo) buscando al perro |
+
+**Avisa de ladridos que no lo son** (tele, golpes...): sube `BARK_THRESHOLD`
+(por ejemplo a `0.8`).
+**No reacciona cuando ladra**: bájalo (por ejemplo a `0.3`) y comprueba el
+volumen del micrófono con `alsamixer`.
+**Oye el ladrido pero casi nunca ve al perro**: sube `BARK_CAMERA_CHECKS`
+para darle más tiempo a entrar en el plano.
+
+La mejor forma de reducir errores es reentrenar el modelo con grabaciones de
+tu perro y del ruido de tu casa hechas con este mismo micrófono (ver la
+sección 3 del notebook).
+
+### Si algo falla
+
+**`anti-ladridos=no disponible` en los logs**
+Mira los avisos anteriores: faltan `ladridos.tflite` / `ladridos_info.json`
+en `models/`, o falta el detector de perro.
+
+**`El micrófono '...' se ha cerrado`**
+El nombre en `AUDIO_INPUT_DEVICE` no es correcto o el micrófono no está
+conectado. Comprueba el nombre con `arecord -L` y prueba a grabar como se
+explica arriba. El bot vuelve a intentarlo cada 30 segundos.
+
+**`⚠️ Pero no se pudo reproducir` en el aviso de Telegram**
+El mensaje incluye el motivo. Normalmente es que `sounds/ladrido.wav` no
+existe o que `AUDIO_OUTPUT_DEVICE` no es correcto (compruébalo con
+`aplay -L`).
+
+## 8. Solución de problemas
 
 **`Permission denied` al abrir /dev/video0 en los logs**
 El usuario dentro del contenedor no pertenece al grupo del dispositivo.
@@ -241,10 +371,14 @@ webcam-bot/
 │   ├── handlers.py     # Comandos y botones de Telegram
 │   ├── watchdog.py     # Vigilancia automática de perro
 │   ├── detection.py    # Detección de perro (MobileNet-SSD)
+│   ├── bark_guard.py   # Anti-ladridos: ladrido → cámara → audio + aviso
+│   ├── bark_detection.py # Detección de ladridos (modelo de Colab)
+│   ├── audio.py        # Micrófono y altavoz (arecord / aplay)
 │   └── usb_reset.py    # Reset USB de la cámara
 ├── tests/              # Tests (`pytest`)
 ├── notebooks/          # Entrenamiento del detector de ladridos (Google Colab)
-├── models/             # Pesos del modelo de detección (no versionados)
+├── models/             # Modelos de perro y de ladridos (no versionados)
+├── sounds/             # Audio del anti-ladridos (no versionado)
 ├── requirements.txt
 ├── requirements-dev.txt
 ├── pyproject.toml      # Configuración de pytest
