@@ -215,6 +215,9 @@ pytest
 
 ## Pendientes / incoherencias conocidas
 
-- El README no incluye todavía la sección «Detección automática de perro»
-  (instrucciones para descargar los pesos a `models/`), aunque el código y los
-  logs la referencian. Tampoco documenta `/vigilancia` ni `/reset_cam`.
+- El README no documenta todavía `/reset_cam` (reset USB). El comentario de
+  `docker-compose.yml` remite a «§5 del README» para el reset USB, pero la
+  sección 5 es «Detección automática de perro».
+- Los mensajes del bot citan la sección del README por su título
+  («Detección automática de perro»): si se renombra, hay que actualizar
+  `watchdog.py`.
