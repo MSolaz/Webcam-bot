@@ -112,10 +112,13 @@ async def on_watchdog_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.answer()
         return
 
-    if query.data == "wd:on":
-        job.enabled = True
-    elif query.data == "wd:off":
-        job.enabled = False
+    enabled = query.data == "wd:on"
+    if job.enabled == enabled:
+        # Editar el mensaje con el mismo contenido lo rechaza Telegram
+        # ("Message is not modified")
+        await query.answer("Ya estaba activada" if enabled else "Ya estaba desactivada")
+        return
+    job.enabled = enabled
 
     await query.answer()
     await query.edit_message_text(
@@ -148,10 +151,12 @@ async def on_bark_guard_callback(update: Update, context: ContextTypes.DEFAULT_T
         await query.answer()
         return
 
-    if query.data == "bk:on":
-        guard.enabled = True
-    elif query.data == "bk:off":
-        guard.enabled = False
+    enabled = query.data == "bk:on"
+    if guard.enabled == enabled:
+        # Ver on_watchdog_callback
+        await query.answer("Ya estaba activado" if enabled else "Ya estaba desactivado")
+        return
+    guard.enabled = enabled
 
     await query.answer()
     await query.edit_message_text(
