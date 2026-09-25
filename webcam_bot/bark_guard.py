@@ -15,6 +15,7 @@ disponible) y se arranca/para con la Application (ver app.py).
 """
 
 import asyncio
+import contextlib
 import logging
 import os
 import time
@@ -101,6 +102,20 @@ class BarkGuard:
     @property
     def threshold(self) -> float:
         return self._detector.threshold
+
+    @property
+    def microphone(self) -> audio.Microphone:
+        return self._microphone
+
+    @contextlib.contextmanager
+    def paused(self):
+        """No analiza el micrófono mientras dure el bloque ni un momento
+        después (para no reaccionar a lo que suena por el altavoz)."""
+        self._ignore_until = float("inf")
+        try:
+            yield
+        finally:
+            self._ignore_until = time.monotonic() + _IGNORE_AFTER_ACTION_SECONDS
 
     # --- Arranque / parada (desde app.py) ---
 
@@ -203,19 +218,17 @@ class BarkGuard:
     async def _play_sound(self):
         """Reproduce el audio sin escuchar mientras tanto. Devuelve el mensaje
         de error, o None si ha sonado bien."""
-        self._ignore_until = float("inf")
-        try:
-            await asyncio.to_thread(
-                audio.play_sound,
-                self.settings.bark_sound_file,
-                self.settings.audio_output_device,
-            )
-            return None
-        except audio.AudioError as exc:
-            logger.error("Anti-ladridos: %s", exc)
-            return str(exc)
-        finally:
-            self._ignore_until = time.monotonic() + _IGNORE_AFTER_ACTION_SECONDS
+        with self.paused():
+            try:
+                await asyncio.to_thread(
+                    audio.play_sound,
+                    self.settings.bark_sound_file,
+                    self.settings.audio_output_device,
+                )
+                return None
+            except audio.AudioError as exc:
+                logger.error("Anti-ladridos: %s", exc)
+                return str(exc)
 
     async def _notify(self, jpeg, text: str):
         for user_id in self.settings.allowed_user_ids:
