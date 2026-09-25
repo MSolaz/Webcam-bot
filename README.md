@@ -264,22 +264,54 @@ hay algo conectado a la salida de altavoz, y en `Mic Jack` (o
 `Front Mic Jack`), al micrófono.
 
 **3. Sube y activa los volúmenes.** Es muy habitual que las salidas y el
-micrófono empiecen **silenciados**: `aplay` reproduce sin dar error, pero no
-se oye nada. Actívalos con:
+micrófono empiecen **silenciados**: `aplay` reproduce o `arecord` graba sin
+dar error, pero no se oye nada. Actívalos con:
 
 ```bash
-amixer -c PCH sset Master 80% unmute
+amixer -c PCH sset Master 100% unmute
 amixer -c PCH sset Headphone 100% unmute
+amixer -c PCH sset PCM 100% unmute
 amixer -c PCH sset Capture 80% cap
 ```
 
 Si alguno responde `Unable to find simple control`, ignóralo: tu tarjeta no
-tiene ese control. Para verlo de forma visual, `alsamixer -c PCH`: las
-columnas con `MM` debajo están silenciadas (selecciónalas con las flechas y
-pulsa `M`); `F4` muestra los volúmenes del micrófono. Si hay una opción
-`Auto-Mute Mode`, ponla en `Disabled`.
+tiene ese control.
 
-**4. Prueba el micrófono y el altavoz** (graba 5 segundos y los reproduce):
+Para ver el estado de la grabación:
+
+```bash
+amixer -c PCH sget Capture
+```
+
+Si al final de la línea pone **`[off]`**, la tarjeta no está grabando nada
+aunque el volumen tenga un valor: el micrófono dará silencio total. Se
+activa con `cap` (el comando `Capture ... cap` de arriba), que es el
+equivalente a `unmute` para la grabación.
+
+Otros controles que conviene conocer:
+
+- **`Mic Boost`** (o `Rear Mic Boost` / `Front Mic Boost`): amplificación
+  extra del micrófono, de 0 a 3. Si la grabación suena muy baja, súbelo; si
+  suena distorsionada o con mucho ruido, bájalo:
+  `amixer -c PCH sset 'Mic Boost' 2`.
+- **`Mic`** y **`Front Mic`** (con volumen de reproducción) **no son la
+  grabación**: mandan el micrófono directamente al altavoz. Si oyes el
+  micrófono por el altavoz o se acopla (pita), siléncialos:
+  `amixer -c PCH sset Mic mute`.
+- **`Input Source`** (solo en algunas tarjetas): elige qué jack graba. Si
+  tienes el micrófono en el jack trasero y está en `Front Mic`, grabará
+  silencio: cámbialo con `amixer -c PCH sset 'Input Source' 'Rear Mic'`
+  (mira los nombres exactos con `amixer -c PCH scontents`).
+
+Para verlo todo de forma visual, `alsamixer -c PCH`: las columnas con `MM`
+debajo están silenciadas (selecciónalas con las flechas y pulsa `M`); `F4`
+muestra los controles de grabación (pulsa espacio para activar la
+grabación de uno).
+
+**4. Prueba el micrófono y el altavoz** (graba 5 segundos y los reproduce).
+Si el bot ya está en marcha, páralo antes con `docker compose stop`: tiene
+el micrófono abierto y `arecord` fallaría con `Device or resource busy`
+(o usa `/diagnostico`, ver sección 8).
 
 ```bash
 arecord -D plughw:CARD=PCH,DEV=0 -d 5 -f S16_LE -r 16000 prueba.wav
@@ -287,11 +319,34 @@ aplay -D plughw:CARD=PCH,DEV=0 prueba.wav
 aplay -D plughw:CARD=PCH,DEV=0 sounds/ladrido.wav
 ```
 
-**5. Guarda los volúmenes** para que se mantengan al reiniciar el servidor:
+Si el altavoz suena bajo con todo al 100 %, revisa su propia rueda de
+volumen. Si aun así tu audio se oye flojo, puede que el archivo esté grabado
+bajo: normalízalo (lo sube a un volumen estándar sin distorsionar):
+
+```bash
+ffmpeg -i sounds/ladrido.wav -af loudnorm=I=-14 -ar 48000 sounds/ladrido_alto.wav
+mv sounds/ladrido_alto.wav sounds/ladrido.wav
+```
+
+**5. Guarda los volúmenes** para que no se pierdan al reiniciar el servidor.
+Linux no los guarda solo: hay que hacerlo **cada vez que cambies algo**:
 
 ```bash
 sudo alsactl store
 ```
+
+Se guardan en `/var/lib/alsa/asound.state` y el sistema los vuelve a aplicar
+al arrancar (servicio `alsa-restore` del paquete `alsa-utils`). Para
+comprobarlo, reinicia el servidor y mira que siguen igual:
+
+```bash
+systemctl status alsa-restore.service   # debe estar active o exited, sin errores
+amixer -c PCH sget Capture              # debe seguir en [on]
+amixer -c PCH sget Master
+```
+
+Reiniciar o reconstruir el contenedor del bot no afecta a los volúmenes: son
+del servidor, no de Docker.
 
 **6. Pon los dispositivos en `.env`.** El formato es
 `plughw:CARD=<nombre de la tarjeta>,DEV=<número de device>`. Usa siempre
@@ -381,6 +436,11 @@ altavoz no está conectado a esa salida: revisa los pasos 2 y 3 de
 **No detecta ningún ladrido**
 Comprueba que el micrófono graba (paso 4) y que su volumen no está
 silenciado (`Capture` en el paso 3).
+
+**Los volúmenes cambian o el micrófono vuelve a dar silencio tras reiniciar
+el servidor**
+No se guardaron con `sudo alsactl store` después del último cambio, o el
+servicio `alsa-restore` no está funcionando (paso 5).
 
 ## 8. Solución de problemas
 
