@@ -318,7 +318,8 @@ docker compose logs -f
 ```
 
 En los logs deberías ver `Modelo de ladridos cargado`, `Micrófono '...'
-abierto` y `anti-ladridos=disponible`.
+abierto` y `anti-ladridos=disponible`. Después, envía `/diagnostico` al bot
+para comprobar que el micrófono y el altavoz funcionan (ver sección 8).
 
 Para cambiar el audio más adelante no hace falta reconstruir la imagen: sustituye
 `sounds/ladrido.wav` y ejecuta `docker compose restart`.
@@ -382,6 +383,29 @@ Comprueba que el micrófono graba (paso 4) y que su volumen no está
 silenciado (`Capture` en el paso 3).
 
 ## 8. Solución de problemas
+
+**Diagnóstico rápido: `/diagnostico`**
+Envía `/diagnostico` al bot y en unos segundos te responde con el estado de
+todo:
+
+```
+🩺 Diagnóstico
+📷 Cámara: ✅ responde (foto adjunta)
+🎤 Micrófono: ✅ recibe sonido (nivel -40 dB; 0 es el máximo)
+🔊 Altavoz: ✅ pitido reproducido. ¿Lo has oído?
+    🎤 El micrófono lo ha captado ✅
+🧠 Modelos: perro ✅ · ladridos ✅ (umbral 50%, activado)
+```
+
+- **Cámara**: hace una foto y te la envía.
+- **Micrófono**: mide el volumen de 3 segundos de audio y te envía la
+  grabación (`microfono.wav`) para que escuches lo que oye. Si pone
+  «no llega sonido», está silenciado o es otro micrófono (sección 7,
+  «Configurar el micrófono y el altavoz»).
+- **Altavoz**: reproduce un pitido corto y comprueba si el micrófono lo
+  capta. Si lo capta, altavoz y micrófono funcionan. Si no, puede que solo
+  estén lejos o con el volumen bajo: comprueba si lo has oído.
+- **Modelos**: si están cargados el detector de perro y el de ladridos.
 
 **`Permission denied` al abrir /dev/video0 en los logs**
 El usuario dentro del contenedor no pertenece al grupo del dispositivo.

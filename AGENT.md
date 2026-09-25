@@ -25,7 +25,8 @@ Funcionalidades:
    por el altavoz y avisa con la foto; si no, solo avisa. Se activa/desactiva
    con botones inline.
 
-Otros comandos: `/start` (muestra el teclado de botones) y `/help`.
+Otros comandos: `/diagnostico` (comprueba cámara, micrófono, altavoz y
+modelos), `/start` (muestra el teclado de botones) y `/help`.
 
 ## Estructura
 
@@ -43,7 +44,8 @@ webcam-bot/
 │   ├── detection.py        # Detección de perro con MobileNet-SSD (OpenCV DNN), sin estado
 │   ├── bark_guard.py       # BarkGuard: micrófono → ladrido → cámara → audio + aviso; textos/teclado
 │   ├── bark_detection.py   # BarkDetector: ladridos.tflite con ai-edge-litert
-│   ├── audio.py            # Microphone (arecord), SlidingWindow, play_sound (aplay)
+│   ├── audio.py            # Microphone (arecord), SlidingWindow, play_sound (aplay), record, beep, to_wav_bytes
+│   ├── diagnostics.py      # run_diagnostics(): /diagnostico (cámara, micrófono, altavoz + eco, modelos)
 │   └── usb_reset.py        # Reset USB real de la cámara vía sysfs + ioctl (solo Linux)
 ├── tests/                  # pytest (usb_reset solo en Linux; bark_detection solo con el modelo en models/)
 ├── notebooks/
@@ -66,7 +68,8 @@ webcam-bot/
 ```
 
 Dependencias entre módulos (en una sola dirección, sin ciclos):
-`__main__` → `app` → `handlers` → `watchdog`, `bark_guard`, `camera`, `auth`, `usb_reset`;
+`__main__` → `app` → `handlers` → `watchdog`, `bark_guard`, `diagnostics`, `camera`, `auth`, `usb_reset`;
+`diagnostics` → `audio`, `camera`;
 `watchdog` → `detection`, `camera`, `config`;
 `bark_guard` → `audio`, `bark_detection`, `detection`, `camera`, `config`.
 
@@ -132,7 +135,9 @@ positiva, respeta el cooldown y envía la alerta a todos los
   `AUDIO_INPUT_DEVICE`) en un hilo propio y trocea el flujo con
   `SlidingWindow` en ventanas de 15600 muestras cada 7680 (el mismo troceado
   que YAMNet en el entrenamiento). Si `arecord` se cierra, reintenta cada
-  30 s. `audio.play_sound()` reproduce un WAV con `aplay` (bloqueante).
+  30 s. Guarda los últimos 10 s de audio (`recent_audio()`,
+  `is_receiving()`) para el diagnóstico. `audio.play_sound()` reproduce un
+  WAV con `aplay` (bloqueante).
 - `BarkDetector` carga `ladridos.tflite` con `ai_edge_litert` (sin
   TensorFlow) y lee de `ladridos_info.json` el formato de entrada, los nombres
   de entrada/salida y `umbral_recomendado` (`BARK_THRESHOLD` lo sustituye).
@@ -144,7 +149,8 @@ positiva, respeta el cooldown y envía la alerta a todos los
   perro (con `camera.lock`, también porque la red `cv2.dnn` no es
   thread-safe y la comparte con la vigilancia), audio si lo ve y aviso con
   foto a todos los `allowed_user_ids`. Mientras suena el audio y 1,5 s
-  después se ignora el micrófono (evita que se dispare con su propio audio).
+  después se ignora el micrófono (evita que se dispare con su propio audio);
+  `BarkGuard.paused()` hace lo mismo para cualquier bloque de código.
 - `app.py` crea el `BarkGuard` solo si hay modelo de ladridos **y** `net`, y
   lo arranca/para en `post_init` / `post_shutdown` de la Application.
 
@@ -152,10 +158,21 @@ El modelo se entrena con `notebooks/entrenar_ladridos.ipynb`. Entrada:
 `audio`, 15600 float32 mono a 16 kHz en [-1, 1]; salida:
 `probabilidad_ladrido`.
 
+### `diagnostics.py`
+
+`run_diagnostics(bot_data)` devuelve un `Diagnosis` (líneas de texto, foto y
+WAV del micrófono): foto con la cámara; 3 s de micrófono y su nivel en dBFS
+(< -70 dB = silencio); pitido de 1000 Hz por el altavoz y prueba de eco
+(`beep_heard()`: amplitud a 1000 Hz ≥ 4 veces la del audio normal); estado
+de los modelos. **ALSA no deja abrir el micrófono dos veces**: si el
+`BarkGuard` está en marcha, usa `guard.microphone.recent_audio()` y reproduce
+el pitido dentro de `guard.paused()`; si no, graba aparte con
+`audio.record()`.
+
 ### `handlers.py`
 
 `cmd_start`, `cmd_help`, `cmd_foto`, `cmd_vigilancia`, `cmd_ladridos`,
-`cmd_reset_cam`, `on_watchdog_callback` (patrón `^wd:`, datos `wd:on` /
+`cmd_reset_cam`, `cmd_diagnostico`, `on_watchdog_callback` (patrón `^wd:`, datos `wd:on` /
 `wd:off`), `on_bark_guard_callback` (patrón `^bk:`, datos `bk:on` / `bk:off`)
 y `unknown_text`, que enruta el texto de los botones del teclado a su
 comando. `register_handlers(app)` los registra todos.

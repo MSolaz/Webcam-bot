@@ -24,6 +24,7 @@ from webcam_bot import usb_reset
 from webcam_bot.auth import is_authorized, restricted
 from webcam_bot.bark_guard import bark_guard_keyboard, bark_guard_status_text
 from webcam_bot.camera import CameraError
+from webcam_bot.diagnostics import run_diagnostics
 from webcam_bot.watchdog import watchdog_keyboard, watchdog_status_text
 
 __all__ = ["MAIN_KEYBOARD", "register_handlers"]
@@ -217,6 +218,36 @@ async def cmd_reset_cam(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 @restricted
+async def cmd_diagnostico(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "🩺 Comprobando cámara, micrófono y altavoz (unos segundos; sonará un pitido)..."
+    )
+    await context.bot.send_chat_action(
+        chat_id=update.effective_chat.id, action=ChatAction.TYPING
+    )
+
+    try:
+        result = await run_diagnostics(context.bot_data)
+    except Exception:
+        logger.exception("Error inesperado en el diagnóstico")
+        await update.message.reply_text(
+            "⚠️ Error inesperado durante el diagnóstico. Revisa los logs del contenedor."
+        )
+        return
+
+    if result.photo is not None:
+        await update.message.reply_photo(photo=result.photo, caption=result.text)
+    else:
+        await update.message.reply_text(result.text)
+    if result.recording is not None:
+        await update.message.reply_document(
+            document=result.recording,
+            filename="microfono.wav",
+            caption="🎤 Lo que oye el micrófono (3 s)",
+        )
+
+
+@restricted
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Comandos disponibles:\n"
@@ -226,6 +257,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/ladridos — ver/activar/desactivar el anti-ladridos (micrófono + "
         "altavoz)\n"
         "/reset_cam — reset USB de la cámara si se queda colgada\n"
+        "/diagnostico — comprobar que cámara, micrófono y altavoz funcionan\n"
         "/start — mostrar el teclado de botones\n"
         "/help — esta ayuda",
         reply_markup=MAIN_KEYBOARD,
@@ -252,6 +284,7 @@ def register_handlers(app: Application):
     app.add_handler(CommandHandler("vigilancia", cmd_vigilancia))
     app.add_handler(CommandHandler("ladridos", cmd_ladridos))
     app.add_handler(CommandHandler("reset_cam", cmd_reset_cam))
+    app.add_handler(CommandHandler("diagnostico", cmd_diagnostico))
     app.add_handler(CallbackQueryHandler(on_watchdog_callback, pattern=r"^wd:"))
     app.add_handler(CallbackQueryHandler(on_bark_guard_callback, pattern=r"^bk:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, unknown_text))
